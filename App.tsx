@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
-import { LayoutDashboard, School as SchoolIcon, Users, Settings, Plus, Search, ChevronRight, Menu, X, ArrowUpRight, DollarSign, Edit2, Trash2 } from 'lucide-react';
+import { LayoutDashboard, School as SchoolIcon, Users, Settings, Plus, Search, ChevronRight, Menu, X, ArrowUpRight, DollarSign, Edit2, Trash2, Building2 } from 'lucide-react';
 import { 
   School, Licensee, GlobalConfig, Payment, 
   SchoolStatus, ProgramType, PaymentType, PaymentStatus 
@@ -15,6 +15,7 @@ import { SchoolDetail } from './components/SchoolDetail';
 import { LicenseeDetail } from './components/LicenseeDetail';
 import { ConfigView } from './components/ConfigView';
 import { SchoolFormModal } from './components/SchoolFormModal';
+import { LicenseeFormModal } from './components/LicenseeFormModal';
 import { ConfirmModal } from './components/ConfirmModal';
 
 const SidebarLink = ({ to, icon: Icon, label, active }: any) => (
@@ -31,15 +32,19 @@ const SidebarLink = ({ to, icon: Icon, label, active }: any) => (
 
 const App: React.FC = () => {
   const [config, setConfig] = useState<GlobalConfig>(INITIAL_CONFIG);
-  const [licensees, setLicensees] = useState<Licensee[]>(INITIAL_LICENSEES);
+  const [licenseees, setLicensees] = useState<Licensee[]>(INITIAL_LICENSEES);
   const [schools, setSchools] = useState<School[]>([]);
   const [payments, setPayments] = useState<Payment[]>(MOCK_PAYMENTS);
 
   // Modal states
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [schoolToEdit, setSchoolToEdit] = useState<School | undefined>(undefined);
+  
+  const [isLicenseeModalOpen, setIsLicenseeModalOpen] = useState(false);
+  const [licenseeToEdit, setLicenseeToEdit] = useState<Licensee | undefined>(undefined);
+
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [schoolToDelete, setSchoolToDelete] = useState<School | undefined>(undefined);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string, type: 'school' | 'licensee' } | undefined>(undefined);
 
   // Helper to sync finances when state changes
   const refreshSchoolFinances = (s: School) => calculateSchoolFinances(s, config);
@@ -47,7 +52,6 @@ const App: React.FC = () => {
   // Initialize a mock school if empty
   useEffect(() => {
     if (schools.length === 0) {
-      // Added missing required properties: direccion, pais, responsableNombre, responsableTelefono
       const mockSchool: School = {
         id: 's1',
         nombre: 'Colegio Americano',
@@ -89,26 +93,42 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleUpdateSchool = (updated: School) => {
+  const handleSaveSchool = (updated: School) => {
     const recalculated = refreshSchoolFinances(updated);
-    setSchools(prev => prev.map(s => s.id === updated.id ? recalculated : s));
+    setSchools(prev => {
+      const exists = prev.find(s => s.id === updated.id);
+      if (exists) return prev.map(s => s.id === updated.id ? recalculated : s);
+      return [...prev, recalculated];
+    });
   };
 
-  const handleAddSchool = (newSchool: School) => {
-    const recalculated = refreshSchoolFinances(newSchool);
-    setSchools(prev => [...prev, recalculated]);
+  const handleSaveLicensee = (lic: Licensee) => {
+    setLicensees(prev => {
+      const exists = prev.find(l => l.id === lic.id);
+      if (exists) return prev.map(l => l.id === lic.id ? lic : l);
+      return [...prev, lic];
+    });
   };
 
-  const handleDeleteSchool = (id: string) => {
-    setSchools(prev => prev.filter(s => s.id !== id));
-    setPayments(prev => prev.filter(p => p.referenciaId !== id));
+  const handleDeleteItem = () => {
+    if (!itemToDelete) return;
+    if (itemToDelete.type === 'school') {
+      setSchools(prev => prev.filter(s => s.id !== itemToDelete.id));
+      setPayments(prev => prev.filter(p => p.referenciaId !== itemToDelete.id));
+    } else {
+      setLicensees(prev => prev.filter(l => l.id !== itemToDelete.id));
+      // Optionally reassign schools or delete them
+    }
     setIsConfirmModalOpen(false);
-    setSchoolToDelete(undefined);
+    setItemToDelete(undefined);
   };
 
-  const addPayment = (p: Omit<Payment, 'id'>) => {
-    const newPayment = { ...p, id: `p${Date.now()}` } as Payment;
-    setPayments(prev => [...prev, newPayment]);
+  const addPayment = (p: Payment) => {
+    setPayments(prev => {
+      const exists = prev.find(pay => pay.id === p.id);
+      if (exists) return prev.map(pay => pay.id === p.id ? p : pay);
+      return [...prev, p];
+    });
   };
 
   const openEditSchool = (school: School) => {
@@ -116,15 +136,14 @@ const App: React.FC = () => {
     setIsSchoolModalOpen(true);
   };
 
-  const openDeleteConfirm = (school: School) => {
-    setSchoolToDelete(school);
-    setIsConfirmModalOpen(true);
+  const openEditLicensee = (licensee: Licensee) => {
+    setLicenseeToEdit(licensee);
+    setIsLicenseeModalOpen(true);
   };
 
   return (
     <HashRouter>
       <div className="flex h-screen overflow-hidden bg-gray-50">
-        {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col p-6">
           <div className="flex items-center gap-3 mb-10 px-2">
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
@@ -132,39 +151,25 @@ const App: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-gray-900">Epic Control</h1>
           </div>
-          
           <nav className="flex-1 space-y-2">
             <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
             <SidebarLink to="/schools" icon={SchoolIcon} label="Escuelas" />
             <SidebarLink to="/licensees" icon={Users} label="Licenciatarios" />
             <SidebarLink to="/config" icon={Settings} label="Configuración" />
           </nav>
-
-          <div className="mt-auto p-4 bg-gray-50 rounded-xl border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Sistema v1.0</p>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs uppercase">
-                AD
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-sm font-semibold truncate">Admin Epic</p>
-                <p className="text-[10px] text-gray-400 truncate">master@epicgroup.mx</p>
-              </div>
-            </div>
-          </div>
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 overflow-y-auto relative">
           <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold">Portal Operativo</h2>
             <div className="flex items-center gap-4">
-              <h2 className="text-lg font-bold">Portal Operativo</h2>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="p-2 hover:bg-gray-100 rounded-full transition-colors relative">
-                <Search size={20} className="text-gray-500" />
+               <button 
+                onClick={() => { setLicenseeToEdit(undefined); setIsLicenseeModalOpen(true); }}
+                className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium transition-all"
+              >
+                <Plus size={18} />
+                <span>Licenciatario</span>
               </button>
-              <div className="h-6 w-[1px] bg-gray-200 mx-2"></div>
               <button 
                 onClick={() => { setSchoolToEdit(undefined); setIsSchoolModalOpen(true); }}
                 className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md shadow-indigo-100"
@@ -177,11 +182,11 @@ const App: React.FC = () => {
 
           <div className="p-8">
             <Routes>
-              <Route path="/" element={<Dashboard schools={schools} licensees={licensees} payments={payments} />} />
-              <Route path="/schools" element={<SchoolsList schools={schools} onEdit={openEditSchool} onDelete={openDeleteConfirm} />} />
-              <Route path="/school/:id" element={<SchoolDetail schools={schools} licensees={licensees} payments={payments} updateSchool={handleUpdateSchool} addPayment={addPayment} onEdit={openEditSchool} onDelete={openDeleteConfirm} />} />
-              <Route path="/licensees" element={<LicenseesList licensees={licensees} schools={schools} />} />
-              <Route path="/licensee/:id" element={<LicenseeDetail licensees={licensees} schools={schools} payments={payments} addPayment={addPayment} updateSchool={handleUpdateSchool} />} />
+              <Route path="/" element={<Dashboard schools={schools} licensees={licenseees} payments={payments} />} />
+              <Route path="/schools" element={<SchoolsList schools={schools} onEdit={openEditSchool} onDelete={(s) => { setItemToDelete({ id: s.id, type: 'school' }); setIsConfirmModalOpen(true); }} />} />
+              <Route path="/school/:id" element={<SchoolDetail schools={schools} licensees={licenseees} payments={payments} updateSchool={handleSaveSchool} addPayment={addPayment} onEdit={openEditSchool} onDelete={(s) => { setItemToDelete({ id: s.id, type: 'school' }); setIsConfirmModalOpen(true); }} />} />
+              <Route path="/licensees" element={<LicenseesList licensees={licenseees} schools={schools} onEdit={openEditLicensee} />} />
+              <Route path="/licensee/:id" element={<LicenseeDetail licensees={licenseees} schools={schools} payments={payments} addPayment={addPayment} updateSchool={handleSaveSchool} />} />
               <Route path="/config" element={<ConfigView config={config} setConfig={setConfig} />} />
             </Routes>
           </div>
@@ -191,19 +196,26 @@ const App: React.FC = () => {
       <SchoolFormModal 
         isOpen={isSchoolModalOpen} 
         onClose={() => setIsSchoolModalOpen(false)} 
-        onSave={schoolToEdit ? handleUpdateSchool : handleAddSchool} 
+        onSave={handleSaveSchool} 
         schoolToEdit={schoolToEdit}
-        licensees={licensees}
+        licensees={licenseees}
         config={config}
+      />
+
+      <LicenseeFormModal
+        isOpen={isLicenseeModalOpen}
+        onClose={() => setIsLicenseeModalOpen(false)}
+        onSave={handleSaveLicensee}
+        licenseeToEdit={licenseeToEdit}
       />
 
       <ConfirmModal 
         isOpen={isConfirmModalOpen}
         onClose={() => setIsConfirmModalOpen(false)}
-        onConfirm={() => schoolToDelete && handleDeleteSchool(schoolToDelete.id)}
-        title="¿Eliminar Escuela?"
-        message={`Esta acción eliminará permanentemente la escuela "${schoolToDelete?.nombre}" y todos sus registros asociados.`}
-        confirmText="Eliminar"
+        onConfirm={handleDeleteItem}
+        title={itemToDelete?.type === 'school' ? "¿Eliminar Escuela?" : "¿Eliminar Licenciatario?"}
+        message="Esta acción no se puede deshacer y borrará todos los registros financieros asociados."
+        confirmText="Confirmar Eliminación"
       />
     </HashRouter>
   );
@@ -211,32 +223,29 @@ const App: React.FC = () => {
 
 const SchoolsList = ({ schools, onEdit, onDelete }: { schools: School[], onEdit: (s: School) => void, onDelete: (s: School) => void }) => (
   <div>
-    <h3 className="text-2xl font-bold mb-6">Listado de Escuelas</h3>
-    <div className="grid grid-cols-1 gap-4">
+    <h3 className="text-3xl font-black mb-8">Listado de Escuelas</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
       {schools.map(school => (
-        <div key={school.id} className="bg-white p-6 rounded-xl border border-gray-200 hover:shadow-lg transition-all flex items-center justify-between group">
-          <Link to={`/school/${school.id}`} className="flex-1">
-            <p className="text-sm font-medium text-indigo-600 mb-1">{school.status}</p>
-            <h4 className="text-lg font-bold">{school.nombre}</h4>
-            <p className="text-sm text-gray-500">{school.ciudad}, {school.estado}</p>
+        <div key={school.id} className="bg-white p-6 rounded-[32px] border border-gray-100 hover:shadow-2xl hover:-translate-y-1 transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className={`absolute top-0 left-0 w-1 h-full ${school.status === SchoolStatus.ACTIVA ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
+          <Link to={`/school/${school.id}`} className="mb-6">
+            <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter mb-4 inline-block ${school.status === SchoolStatus.ACTIVA ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+              {school.status}
+            </span>
+            <h4 className="text-xl font-black text-gray-900 group-hover:text-indigo-600 transition-colors">{school.nombre}</h4>
+            <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-widest">{school.ciudad}, {school.estado}</p>
           </Link>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={(e) => { e.preventDefault(); onEdit(school); }}
-              className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-              title="Editar"
-            >
-              <Edit2 size={18} />
-            </button>
-            <button 
-              onClick={(e) => { e.preventDefault(); onDelete(school); }}
-              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="Eliminar"
-            >
-              <Trash2 size={18} />
-            </button>
-            <Link to={`/school/${school.id}`}>
-              <ChevronRight className="text-gray-300 group-hover:text-indigo-600 transition-colors ml-2" />
+          <div className="flex items-center justify-between pt-6 border-t border-gray-50">
+            <div className="flex items-center gap-1">
+               <button onClick={(e) => { e.preventDefault(); onEdit(school); }} className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+                  <Edit2 size={16} />
+               </button>
+               <button onClick={(e) => { e.preventDefault(); onDelete(school); }} className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                  <Trash2 size={16} />
+               </button>
+            </div>
+            <Link to={`/school/${school.id}`} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all">
+              <ChevronRight size={18} />
             </Link>
           </div>
         </div>
@@ -245,26 +254,41 @@ const SchoolsList = ({ schools, onEdit, onDelete }: { schools: School[], onEdit:
   </div>
 );
 
-const LicenseesList = ({ licensees, schools }: { licensees: Licensee[], schools: School[] }) => (
+const LicenseesList = ({ licensees, schools, onEdit }: { licensees: Licensee[], schools: School[], onEdit: (l: Licensee) => void }) => (
   <div>
-    <h3 className="text-2xl font-bold mb-6">Licenciatarios</h3>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <h3 className="text-3xl font-black mb-8">Directorio de Licenciatarios</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
       {licensees.map(lic => {
         const licSchools = schools.filter(s => s.licenciatarioId === lic.id);
         return (
-          <Link to={`/licensee/${lic.id}`} key={lic.id} className="bg-white p-6 rounded-xl border border-gray-200 hover:shadow-lg transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-xl font-bold">{lic.nombreComercial}</h4>
-              <span className={`px-2 py-1 rounded text-[10px] font-bold ${lic.status === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div key={lic.id} className="bg-white p-8 rounded-[40px] border border-gray-100 hover:shadow-2xl transition-all relative group">
+            <div className="flex items-center justify-between mb-8">
+              <div className="p-4 bg-indigo-50 rounded-2xl text-indigo-600">
+                <Building2 size={24} />
+              </div>
+              <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${lic.status === 'ACTIVO' ? 'bg-green-100 text-green-700 shadow-sm' : 'bg-red-100 text-red-700'}`}>
                 {lic.status}
               </span>
             </div>
-            <div className="space-y-2">
-              <p className="text-sm text-gray-500 flex justify-between"><span>País:</span> <span className="text-gray-900 font-medium">{lic.pais}</span></p>
-              <p className="text-sm text-gray-500 flex justify-between"><span>Escuelas:</span> <span className="text-gray-900 font-medium">{licSchools.length}</span></p>
-              <p className="text-sm text-gray-500 flex justify-between"><span>Tipo:</span> <span className="text-gray-900 font-medium">{lic.tipoLicencia}</span></p>
+            <Link to={`/licensee/${lic.id}`}>
+               <h4 className="text-2xl font-black text-gray-900 group-hover:text-indigo-600 transition-colors">{lic.nombreComercial}</h4>
+               <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-[0.2em] mb-8">{lic.razonSocial}</p>
+            </Link>
+            <div className="space-y-4 pt-6 border-t border-gray-50">
+              <div className="flex justify-between text-xs font-bold text-gray-500">
+                <span>Escuelas:</span>
+                <span className="text-indigo-600 font-black">{licSchools.length} centros</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold text-gray-500">
+                <span>Tipo:</span>
+                <span className="text-gray-900">{lic.tipoLicencia}</span>
+              </div>
             </div>
-          </Link>
+            <div className="mt-8 flex gap-3">
+               <button onClick={() => onEdit(lic)} className="flex-1 py-3 text-[10px] font-black uppercase tracking-widest bg-gray-50 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 rounded-2xl transition-all border border-gray-100">Editar Perfil</button>
+               <Link to={`/licensee/${lic.id}`} className="flex-1 py-3 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white text-center rounded-2xl shadow-lg hover:shadow-xl transition-all">Ver Finanzas</Link>
+            </div>
+          </div>
         );
       })}
     </div>
